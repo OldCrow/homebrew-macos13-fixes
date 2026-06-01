@@ -1,19 +1,32 @@
 # Patched for macOS 13 (Ventura) / Apple Clang 15 compatibility.
 #
-# gnutls 3.8.12 fails to build because CRAU_MAYBE_UNUSED in lib/crau/crau.h
-# is never defined under Apple Clang in C17 mode: __has_c_attribute is defined
-# but __has_c_attribute(__maybe_unused__) returns false, leaving the macro
-# undefined and the __GNUC__ fallback unreachable.
+# gnutls 3.8.13 fails to build on Apple Clang 15 (clang-1500) because
+# CRAU_MAYBE_UNUSED in lib/crau/crau.h expands to [[__maybe_unused__]]
+# (C23 attribute syntax) when __has_c_attribute(__maybe_unused__) is
+# non-zero.  Apple Clang 15 then treats the stub definition:
 #
-# The inline patch flattens the nested #if so the __clang__ fallback fires.
+#   void crau_data(struct crau_context_stack_st *stack [[__maybe_unused__]], ...)
+#
+# as a conflicting redeclaration of the earlier prototype (which has no
+# attribute), producing 12 "conflicting types" errors and a build failure.
+#
+# The upstream homebrew-core formula guards against this only for
+# clang_build_version <= 1400 (Monterey/Xcode 14); Ventura ships with
+# clang-1500 and has no pre-built bottle, so it always hits this path.
+#
+# The inline patch moves __clang__ before __has_c_attribute so that
+# Clang always uses __attribute__((__unused__)) — which does not affect
+# the function's type signature — rather than [[__maybe_unused__]].
+#
 # Remove this formula once gnutls upstream or homebrew-core resolves the issue.
 class Gnutls < Formula
   desc "GNU Transport Layer Security (TLS) Library"
   homepage "https://gnutls.org/"
-  url "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.12.tar.xz"
-  mirror "https://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.8/gnutls-3.8.12.tar.xz"
-  sha256 "a7b341421bfd459acf7a374ca4af3b9e06608dcd7bd792b2bf470bea012b8e51"
+  url "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz"
+  mirror "https://www.mirrorservice.org/sites/ftp.gnupg.org/gcrypt/gnutls/v3.8/gnutls-3.8.13.tar.xz"
+  sha256 "ffed8ec1bf09c2426d4f14aae377de4753b53e537d685e604e99a8b16ca9c97e"
   license all_of: ["LGPL-2.1-or-later", "GPL-3.0-only"]
+  compatibility_version 1
 
   livecheck do
     url "https://www.gnutls.org/download.html"
@@ -52,10 +65,12 @@ class Gnutls < Formula
     depends_on "zlib-ng-compat"
   end
 
-  # Fix CRAU_MAYBE_UNUSED macro detection on Apple Clang in C17 mode.
-  # __has_c_attribute is defined but __has_c_attribute(__maybe_unused__)
-  # returns false, leaving the macro undefined and the __GNUC__ fallback
-  # unreachable. Flatten the nested #if to let the fallback fire.
+  # Fix CRAU_MAYBE_UNUSED macro on Apple Clang 15 (clang-1500, Ventura).
+  # __has_c_attribute(__maybe_unused__) is non-zero on this compiler, so the
+  # macro expands to [[__maybe_unused__]].  Apple Clang 15 then rejects the
+  # stub definitions as conflicting redeclarations of the plain prototypes.
+  # Moving the __clang__ branch first forces the __attribute__((__unused__))
+  # form, which does not alter the function type and compiles without error.
   patch :DATA
 
   def install
@@ -95,7 +110,8 @@ end
 __END__
 --- a/lib/crau/crau.h
 +++ b/lib/crau/crau.h
-@@ -250,13 +250,13 @@
+@@ -251,13 +251,15 @@
+ # else
  
  #  ifndef CRAU_MAYBE_UNUSED
 -#   if defined(__has_c_attribute)
@@ -104,12 +120,16 @@ __END__
 -#    endif
 -#   elif defined(__GNUC__)
 -#    define CRAU_MAYBE_UNUSED __attribute__((__unused__))
-+#   if defined(__has_c_attribute) && __has_c_attribute (__maybe_unused__)
+-#   endif
++#   if defined(__clang__)
++#    define CRAU_MAYBE_UNUSED __attribute__((__unused__))
++#   elif defined(__has_c_attribute) && __has_c_attribute (__maybe_unused__)
 +#    define CRAU_MAYBE_UNUSED [[__maybe_unused__]]
-+#   elif defined(__GNUC__) || defined(__clang__)
++#   elif defined(__GNUC__)
 +#    define CRAU_MAYBE_UNUSED __attribute__((__unused__))
 +#   else
 +#    define CRAU_MAYBE_UNUSED
- #   endif
++#   endif
  #  endif /* CRAU_MAYBE_UNUSED */
  
+ void crau_push_context(struct crau_context_stack_st *stack CRAU_MAYBE_UNUSED,
