@@ -108,12 +108,12 @@ class Z3 < Formula
       # typedef) can use T(args) syntax without P0960R3.
       # key_data() = default preserves the m_key = nullptr member initializer.
       s.gsub! "        Value m_value;\n        Value const & get_value()",
-              "        Value m_value;\n" \
-              "        key_data() = default;\n" \
-              "        key_data(Key * k) : m_key(k) {}\n" \
-              "        key_data(Key * k, Value const & v) : m_key(k), m_value(v) {}\n" \
-              "        key_data(Key * k, Value && v) : m_key(k), m_value(std::move(v)) {}\n" \
-              "        Value const & get_value()"
+              "        Value m_value;\n        " \
+              "key_data() = default;\n        " \
+              "key_data(Key * k) : m_key(k) {}\n        " \
+              "key_data(Key * k, Value const & v) : m_key(k), m_value(v) {}\n        " \
+              "key_data(Key * k, Value && v) : m_key(k), m_value(std::move(v)) {}\n        " \
+              "Value const & get_value()"
     end
 
     args = %W[

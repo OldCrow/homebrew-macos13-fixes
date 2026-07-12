@@ -21,10 +21,9 @@ class ItstoolAT207 < Formula
   depends_on "doxygen" => :build # for libxml2 python bindings
   depends_on "pkgconf" => :build # for libxml2 python bindings
   depends_on "python-setuptools" => :build # for libxml2 python bindings
+  depends_on "icu4c@78" # ensure ICU is available for the libxml2 resource build
   depends_on "libxml2"
   depends_on "python@3.14"
-  # Ensure ICU is available for libxml2 resource build
-  depends_on "icu4c@78"
 
   # Need deprecated libxml2 python bindings. May switch to lxml in future:
   # Ref: https://github.com/itstool/itstool/pull/57
@@ -40,12 +39,12 @@ class ItstoolAT207 < Formula
   def install
     resource("libxml2").stage do
       # Make ICU discoverable in superenv
-      ENV.append_path "PKG_CONFIG_PATH", Formula["icu4c@78"].opt_lib/"pkgconfig"
-      ENV.append "CPPFLAGS", " -I#{Formula["icu4c@78"].opt_include}"
-      ENV.append "LDFLAGS", " -L#{Formula["icu4c@78"].opt_lib}"
+      ENV.append_path "PKG_CONFIG_PATH", formula_opt_lib("icu4c@78")/"pkgconfig"
+      ENV.append "CPPFLAGS", " -I#{formula_opt_include("icu4c@78")}"
+      ENV.append "LDFLAGS", " -L#{formula_opt_lib("icu4c@78")}"
 
       # We need to insert our include dir first
-      includes = [Formula["libxml2"].opt_include]
+      includes = [formula_opt_include("libxml2")]
       includes << (OS.mac? ? "#{MacOS.sdk_for_formula(self).path}/usr/include" : HOMEBREW_PREFIX/"include")
       inreplace "python/setup.py.in", "includes_dir = [",
                                       "includes_dir = [#{includes.map { |inc| "'#{inc}'," }.join(" ")}"

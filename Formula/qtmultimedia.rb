@@ -62,7 +62,9 @@ class Qtmultimedia < Formula
 
   def install
     # See header comment: without this, superenv strips -march=haswell and
-    # breaks the AVX2 SIMD dispatch files on Apple Clang 15.
+    # breaks the AVX2 SIMD dispatch files on Apple Clang 15. Qt ships per-file
+    # AVX2 SIMD dispatch guarded at runtime, so runtime_cpu_detection is safe
+    # here (allowlisted in style_exceptions/runtime_cpu_detection_allowlist.json).
     ENV.runtime_cpu_detection
 
     args = ["-DCMAKE_STAGING_PREFIX=#{prefix}"]
