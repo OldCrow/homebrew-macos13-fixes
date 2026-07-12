@@ -160,13 +160,6 @@ forums. Do not draft or file the issue unprompted.
 - **Fix**: build against a bundled `libxml2` resource with ICU support and Python 3.14 bindings.
 - **Key dependency**: `icu4c@78`, `libxml2`, `python@3.14`.
 
-### libheif.rb (retirement candidate)
-- **Problem**: 1.22.0 declared `struct heif_bad_pixel` but referenced it without the `struct`
-  tag — a hard error when a C consumer (imagemagick's `heic.c`) includes the header.
-- **Fix**: inline patch adds the missing `typedef`.
-- **Status**: upstream 1.23.1 adds the typedef itself, so this override is obsolete. Retire it
-  once core 1.23.1 is confirmed to build on Ventura (rebuilds `imagemagick`/`qt`).
-
 ### qtmultimedia.rb
 - **Problem**: superenv strips `-march=`, so Qt's per-file AVX2 SIMD dispatch fails to compile
   its always-inline AVX2 intrinsics on Apple Clang 15.
@@ -184,3 +177,10 @@ forums. Do not draft or file the issue unprompted.
   Apple Clang 15; (2) `std::format` is unavailable in the macOS 13 SDK libc++.
 - **Fix**: add explicit `key_data` constructors, and force-include a `std::format` polyfill that
   avoids the SDK `<format>`.
+
+## Retired Overrides
+- **libheif** (removed at core 1.23.1): the override existed only to add a missing
+  `typedef struct heif_bad_pixel` that broke C consumers (imagemagick's `heic.c`). Upstream
+  1.23.1 adds the typedef itself, and core 1.23.1 builds cleanly from source on this platform
+  (verified: `imagemagick`/`jasper` rebuild and retain HEIC support). Do not re-add a patch —
+  reopen only if a *new*, unrelated Ventura build failure appears.
