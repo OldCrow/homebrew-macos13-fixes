@@ -47,8 +47,8 @@ brew test-bot --only-tap-syntax
 brew test-bot --only-formulae
 ```
 
-Dependents that reference an overridden formula by plain name (e.g. `qt` depending on
-`qtmultimedia`) do not automatically pick up the tap version. Install the tap-qualified
+Dependents that reference an overridden formula by plain name do not automatically pick up
+the tap version. Install the tap-qualified
 formula explicitly first so a keg with that name already exists; Homebrew's dependency
 resolver then reuses the installed keg instead of rebuilding from homebrew-core.
 
@@ -95,9 +95,8 @@ forums. Do not draft or file the issue unprompted.
 
 ### style_exceptions/
 - `runtime_cpu_detection_allowlist.json` — lists formulae allowed to call
-  `ENV.runtime_cpu_detection` without tripping `FormulaAudit/Miscellaneous`. Currently:
-  `qtmultimedia` (required to stop superenv stripping `-march=`; see the formula header — Qt's
-  AVX2 dispatch is runtime-guarded, so the call is safe here).
+  `ENV.runtime_cpu_detection` without tripping `FormulaAudit/Miscellaneous`. Currently empty
+  (the file is removed); re-create it with the formula name if an override needs that call again.
 
 ## Known Apple Clang 15 Failure Patterns
 - **C23 attribute syntax conflict**: `[[__maybe_unused__]]` expands via `__has_c_attribute`
@@ -160,18 +159,6 @@ forums. Do not draft or file the issue unprompted.
 - **Fix**: build against a bundled `libxml2` resource with ICU support and Python 3.14 bindings.
 - **Key dependency**: `icu4c@78`, `libxml2`, `python@3.14`.
 
-### qtmultimedia.rb
-- **Problem**: superenv strips `-march=`, so Qt's per-file AVX2 SIMD dispatch fails to compile
-  its always-inline AVX2 intrinsics on Apple Clang 15.
-- **Fix**: call `ENV.runtime_cpu_detection` so superenv preserves `-march=`; allowlisted in
-  `style_exceptions/runtime_cpu_detection_allowlist.json` (see Formula Conventions above).
-
-### qttools.rb
-- **Problem**: not a macOS/Clang issue — homebrew-core's litehtml 0.10 changed the
-  `background_paint` API and coordinate types; qttools' bundled `qlitehtml` wrapper was not
-  updated, so building against the external system litehtml fails.
-- **Fix**: keep the vendored `qlitehtml` litehtml copy instead of forcing the newer external one.
-
 ### z3.rb
 - **Problem**: (1) P0960R3 parenthesized aggregate init in `obj_hashtable.h` is unsupported by
   Apple Clang 15; (2) `std::format` is unavailable in the macOS 13 SDK libc++.
@@ -179,6 +166,23 @@ forums. Do not draft or file the issue unprompted.
   avoids the SDK `<format>`.
 
 ## Retired Overrides
+- **qtmultimedia** (removed at core 6.11.2): the override existed only to add
+  `ENV.runtime_cpu_detection` so superenv would stop stripping `-march=`. homebrew-core now
+  makes that call itself (citing QTBUG-113391), so the override was pure version lag — and by
+  pinning 6.11.1 against a 6.11.2 qtbase it silently broke dependents (see below).
+- **qttools** (removed at core 6.11.2): the override kept the vendored litehtml to dodge the
+  litehtml 0.10 API break. homebrew-core now backports qlitehtml's upstream litehtml 0.10
+  support as a patch (`Patches/qttools/litehtml-0.10.patch`) and builds against system litehtml.
+  Same version-lag breakage as qtmultimedia.
+
+**Version-lag hazard (learned 2026-09-06).** Qt submodules require exact-version siblings.
+When core moved Qt to 6.11.2 while this tap still pinned qtmultimedia/qttools at 6.11.1,
+`qtspeech` and `qttranslations` did not fail loudly: their CMake `find_package` fell back to a
+*warning* ("Skipping the build as the condition \"TARGET Qt6::Multimedia\" is not met"),
+configure and build succeeded in seconds with nothing to do, and only `cmake --install` failed
+with "empty installation". Any Qt-submodule override in this tap must be version-bumped in
+lockstep with core's Qt, or retired.
+
 - **libheif** (removed at core 1.23.1): the override existed only to add a missing
   `typedef struct heif_bad_pixel` that broke C consumers (imagemagick's `heic.c`). Upstream
   1.23.1 adds the typedef itself, and core 1.23.1 builds cleanly from source on this platform
