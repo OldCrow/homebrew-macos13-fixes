@@ -47,6 +47,37 @@ brew test-bot --only-tap-syntax
 brew test-bot --only-formulae
 ```
 
+### Native gem builds on Ventura (blocks `brew style` / `audit` / `test-bot`)
+
+Homebrew's portable-ruby 4.0 ships `ruby/internal/stdckdint.h`, which includes the C23
+`<stdckdint.h>`. Apple Clang 15 and the macOS 13 SDK do not have that header, so **every**
+native gem extension fails at mkmf's first `try_compile` with the misleading
+"The compiler failed to generate an executable file ... You have to install development tools
+first". Any `brew` command that needs a gem group (`style`, `typecheck`, `test-bot`) triggers
+`bundle install`, which then dies on `json`.
+
+Worse, a partially-installed gem breaks `brew` itself: bundler unpacks the Ruby half of
+`json` and leaves the native half missing, and the half-gem shadows portable-ruby's working
+built-in, so *every* `brew` invocation aborts with
+`undefined method 'default_sort_keys_proc=' for class JSON::Ext::Generator::State`.
+Recover by moving the incomplete `gems/json-<version>` directory (and the matching
+`extensions/<platform>/` entry) out of `Library/Homebrew/vendor/bundle/ruby/<abi>/`.
+
+Fix: build the gems with Homebrew LLVM's clang, which does ship `stdckdint.h`. mkmf ignores
+`$CC` — it invokes a bare `clang` from rbconfig — so override it via `PATH`. `brew` sanitises
+`PATH` for its subprocesses, so run bundler directly rather than through `brew style`:
+
+```bash
+RB=$(brew --repository)/Library/Homebrew/vendor/portable-ruby/<version>/bin
+cd $(brew --repository)/Library/Homebrew
+PATH=$(brew --prefix llvm)/bin:$RB:$PATH BUNDLE_WITH=style $RB/bundle install
+```
+
+This is a one-time cost per `Gemfile.lock` bump: the compiled extensions persist in
+`vendor/bundle`, and plain `brew style` works afterwards. All native gems in the bundle
+(`json`, `prism`, `racc`, `rbs`) are C-only, so there is no libc++/Apple-Clang ABI mixing
+concern; `sorbet-static` and `rubydex` are prebuilt platform gems.
+
 Dependents that reference an overridden formula by plain name do not automatically pick up
 the tap version. Install the tap-qualified
 formula explicitly first so a keg with that name already exists; Homebrew's dependency
