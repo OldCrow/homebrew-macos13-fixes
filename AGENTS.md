@@ -42,9 +42,12 @@ brew install --build-from-source oldcrow/macos13-fixes/<formula>
 # Run formula tests
 brew test oldcrow/macos13-fixes/<formula>
 
-# Full test-bot validation (as CI runs)
-brew test-bot --only-tap-syntax
-brew test-bot --only-formulae
+# Full test-bot validation. `--tap` is REQUIRED when running locally: test-bot
+# defaults to homebrew/core and ignores the working directory, so the bare form
+# silently validates core instead of this tap. CI needs no flag because
+# setup-homebrew sets the tap context from the checkout.
+brew test-bot --only-tap-syntax --tap=oldcrow/macos13-fixes
+brew test-bot --only-formulae --tap=oldcrow/macos13-fixes
 ```
 
 ### Native gem builds on Ventura (blocks `brew style` / `audit` / `test-bot`)
