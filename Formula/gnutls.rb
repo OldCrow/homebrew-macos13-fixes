@@ -93,9 +93,8 @@ class Gnutls < Formula
     mv man1/"certtool.1", man1/"gnutls-certtool.1"
   end
 
-  def post_install
-    rm(pkgetc/"cert.pem") if (pkgetc/"cert.pem").exist?
-    pkgetc.install_symlink Formula["ca-certificates"].pkgetc/"cert.pem"
+  post_install_steps do
+    symlink "{{etc}}/ca-certificates/cert.pem", "{{pkgetc}}/cert.pem", overwrite: true
   end
 
   def caveats
