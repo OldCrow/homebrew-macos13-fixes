@@ -25,7 +25,7 @@ class Gcc < Formula
   desc "GNU compiler collection"
   homepage "https://gcc.gnu.org/"
   license "GPL-3.0-or-later" => { with: "GCC-exception-3.1" }
-  compatibility_version 2
+  compatibility_version 3
   head "https://gcc.gnu.org/git/gcc.git", branch: "master"
 
   stable do

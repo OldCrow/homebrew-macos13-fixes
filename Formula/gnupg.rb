@@ -24,7 +24,7 @@ class Gnupg < Formula
   url "https://gnupg.org/ftp/gcrypt/gnupg/gnupg-2.5.21.tar.bz2"
   sha256 "e3af2c8caa46a66a9329fa7c6880af260451914d819595beabc2c26597b31352"
   license "GPL-3.0-or-later"
-  compatibility_version 1
+  compatibility_version 2
 
   livecheck do
     url :homepage

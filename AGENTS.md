@@ -108,7 +108,9 @@ forums. Do not draft or file the issue unprompted.
 - Begin each file with a comment block: problem description, root cause, fix applied,
   and a "Remove this formula once..." line.
 - Set `compatibility_version` on patched formulas: start at `1`, and bump it whenever a revision
-  changes the formula incompatibly (`gcc` and `z3` are at `2`).
+  changes the formula incompatibly -- including formula-API migrations that leave the installed
+  files identical (e.g. `post_install` to `post_install_steps`). Check the current values with
+  `grep -rn compatibility_version Formula/` rather than relying on a list here.
 - Use `patch :DATA` + `__END__` for inline patches (preferred over external `.patch` files).
 - Skip `make check` only when test failures are demonstrably macOS-specific (SIP sandbox,
   dylib mismatch, etc.). Document the reason in the install block comment.
