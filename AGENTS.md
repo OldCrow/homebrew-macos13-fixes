@@ -47,7 +47,7 @@ brew test oldcrow/macos13-fixes/<formula>
 # silently validates core instead of this tap. CI needs no flag because
 # setup-homebrew sets the tap context from the checkout.
 brew test-bot --only-tap-syntax --tap=oldcrow/macos13-fixes
-brew test-bot --only-formulae --tap=oldcrow/macos13-fixes
+brew test-bot --only-formulae --tap=oldcrow/macos13-fixes  # local only; CI no longer runs this
 ```
 
 ### Native gem builds on Ventura (blocks `brew style` / `audit` / `test-bot`)
@@ -96,6 +96,35 @@ bumping a formula:
 2. Preserve the macOS 13-specific modifications (patches, skipped tests, env tweaks).
 3. Update `url`, `sha256`, and fold in any new upstream changes; re-verify inline patches still
    apply against the new source before committing.
+
+## CI/CD
+
+- `tests.yml`: runs `brew test-bot --only-tap-syntax` on a single `ubuntu-24.04` runner.
+- `publish.yml`: merges PRs and publishes bottles when the `pr-pull` label is applied. Dormant --
+  nothing produces bottles now that `--only-formulae` is gone; keep it only if that changes.
+- `ubuntu-24.04` is pinned, not `ubuntu-22.04`: 22.04's glibc 2.35 is older than current Homebrew
+  expects and `brew doctor` (run by `--only-setup`) treats the mismatch as a hard failure. 22.04
+  also begins deprecation on 2026-09-17.
+
+### Why one Linux runner and no macOS matrix (audited 2026-09-06)
+
+CI cannot build what this tap fixes: GitHub removed the macOS 13 runners on 2025-12-08, so no
+hosted runner runs Ventura or Apple Clang 15. Everything CI *can* check -- `brew style`,
+`brew readall --os=all --arch=all`, `brew audit` -- is platform-independent Ruby linting that
+returns the same result on every runner, so a macOS matrix re-derived an identical answer at 10x
+the per-minute cost.
+
+It also imported unrelated breakage. On 2026-09-02 homebrew-core dropped gmp's Intel macOS
+bottles (`arm64_*` and Linux only). `brew style` installs `shellcheck`, which needs `gmp`, so on
+`macos-15-intel` it began source-building gmp and hung ~29 minutes on unreachable `gmplib.org`
+and `ftpmirror.gnu.org` before failing. Every push from 2026-09-02 onward failed on that leg
+alone, while the ubuntu and macos-26 legs passed in about a minute.
+
+`--only-formulae` and the bottle-artifact upload were dropped with the matrix: both were gated on
+`pull_request`, this repo pushes straight to main, and a build on Sequoia/Tahoe would exercise the
+wrong compiler regardless.
+
+Real build validation is local, on a Ventura machine -- see Build Commands above.
 
 ## Upstream Issue Reporting
 

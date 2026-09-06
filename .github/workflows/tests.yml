@@ -6,13 +6,32 @@ on:
       - main
   pull_request:
 
+# Runner choice (audited 2026-09-06): a single Linux runner, deliberately.
+#
+# This tap fixes source builds for macOS 13 (Ventura) / Apple Clang 15 builds, but GitHub
+# removed the macOS 13 runners on 2025-12-08 and has never offered 10.15, so no
+# hosted runner can compile what these formulae actually fix. What CI *can*
+# check -- `brew style`, `brew readall --os=all --arch=all` and `brew audit`,
+# all via --only-tap-syntax -- is platform-independent Ruby linting that
+# returns the same result everywhere. A macOS matrix therefore re-derives an
+# identical answer at 10x the per-minute cost, while adding failure modes
+# unrelated to this tap: on 2026-09-02 homebrew-core dropped gmp's Intel macOS
+# bottles, so `brew style` (which installs shellcheck, which needs gmp) began
+# source-building gmp on macos-15-intel and hung ~29 min on unreachable
+# gmplib.org before failing.
+#
+# Consequently --only-formulae and the bottle-artifact upload are gone too:
+# they were gated on pull_request, this repo pushes straight to main, and a
+# build on Sequoia/Tahoe would exercise the wrong compiler anyway. Real build
+# validation is local, on the target machine.
+#
+# ubuntu-24.04 is pinned, not ubuntu-22.04: 22.04's glibc 2.35 is older than
+# Homebrew expects and `brew doctor` (run by --only-setup) treats the mismatch
+# as a hard failure. 22.04 also begins deprecation on 2026-09-17.
+
 jobs:
   test-bot:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-24.04, macos-15-intel, macos-26 ]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
       checks: read
@@ -29,20 +48,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ steps.set-up-homebrew.outputs.gems-path }}
-          key: ${{ matrix.os }}-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
-          restore-keys: ${{ matrix.os }}-rubygems-
+          key: ubuntu-24.04-rubygems-${{ steps.set-up-homebrew.outputs.gems-hash }}
+          restore-keys: ubuntu-24.04-rubygems-
 
       - run: brew test-bot --only-cleanup-before
 
       - run: brew test-bot --only-setup
 
       - run: brew test-bot --only-tap-syntax
-      - run: brew test-bot --only-formulae
-        if: github.event_name == 'pull_request'
-
-      - name: Upload bottles as artifact
-        if: always() && github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bottles_${{ matrix.os }}
-          path: '*.bottle.*'
