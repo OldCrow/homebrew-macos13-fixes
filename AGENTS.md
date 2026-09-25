@@ -133,8 +133,24 @@ Some do not: the root cause is a genuine upstream bug or version-compatibility b
 fail on any OS building from source (e.g. a dependency bump that breaks a consumer's API
 assumptions, not a macOS-specific compiler quirk). When diagnosing a build failure turns out to
 be one of these broader cases, tell the User before committing the formula and ask whether they
-want to draft an issue for the relevant project's upstream tracker or Homebrew's discussion
-forums. Do not draft or file the issue unprompted.
+want to draft an issue for the relevant project's upstream tracker. Do not draft or file the
+issue unprompted.
+
+Do not offer Homebrew issues or discussions for these cases: Homebrew is likely to decline
+fixes for configurations it is about to drop. Upstream project issues (e.g. simdutf/simdutf#1045)
+remain worth offering, since the fix reaches all users.
+
+Homebrew's timeline (https://docs.brew.sh/Support-Tiers, checked 2026-09-25):
+- Since September 2026, Intel x86_64 macOS is Tier 3 for Big Sur 11 through Tahoe 26, and
+  Catalina 10.15 and earlier are unsupported. Tahoe 26 is the last macOS for Intel, and Homebrew
+  no longer builds Intel bottles.
+- In or after September 2027, all Intel macOS becomes unsupported, and Homebrew "will remove the
+  ability to run Homebrew on Intel systems". Apple Silicon moves to Tier 3 for Monterey 12
+  through Sequoia 15.
+
+This tap's Intel Ventura prefix (`/usr/local`) therefore has an expected end of September 2027,
+earlier than any Ventura cutoff on Apple Silicon (extrapolated to 2028 at the earliest). For Intel
+macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 
 ## Formula Conventions
 - Begin each file with a comment block: problem description, root cause, fix applied,
@@ -184,6 +200,15 @@ forums. Do not draft or file the issue unprompted.
   has only implicit constructors. Fix: use brace-init `T{args}` or add explicit constructors.
   (10.15 / Apple Clang 12 fails here too, but that tap builds with Homebrew LLVM; on Ventura a
   small source patch suffices.)
+- **Toolchain parity with an LLVM-built consumer**: formulas with `fails_with :clang { build 1699 }`
+  (e.g. `node`) build with Homebrew LLVM and its libc++ headers. If a dependency probes libc++
+  features to decide what it compiles (simdutf's `SIMDUTF_ATOMIC_REF` needs `std::atomic_ref`,
+  absent from the macOS 13 SDK libc++), an Apple-Clang-built dependency omits symbols the consumer
+  expects, and the consumer fails at link time with undefined symbols. Fix: give the dependency
+  the same `fails_with :clang` + `depends_on "llvm" => :build` rule. Before doing so, confirm no
+  ABI risk for Apple Clang callers: libc++ ABI v1 on both sides, identical layout of every `std::`
+  type crossing the API, no feature-probed guards inside exported classes, and every libc++
+  import present in the system `/usr/lib/libc++.1.dylib` (see simdutf.rb below).
 - **`std::format` unavailable in the macOS 13 SDK libc++**: the header is gated twice —
   `_LIBCPP_HAS_NO_INCOMPLETE_FORMAT` hides the `<format>` implementation, and
   `_LIBCPP_AVAILABILITY_FORMAT` marks the types `unavailable` for macOS < 14, so even unlocking
@@ -223,6 +248,27 @@ forums. Do not draft or file the issue unprompted.
   with ICU.
 - **Fix**: build against a bundled `libxml2` resource with ICU support and Python 3.14 bindings.
 - **Key dependency**: `icu4c@78`, `libxml2`, `python@3.14`.
+
+### simdutf.rb
+- **Problem**: node 26.10.0 builds V8 against the shared simdutf and calls its atomic base64 API.
+  node builds with Homebrew LLVM (`fails_with :clang` build 1699), whose libc++ has
+  `std::atomic_ref`; core simdutf builds with Apple Clang 15 and the SDK libc++, which lacks it, so
+  `SIMDUTF_ATOMIC_REF` is unset, the atomic API is compiled out, and node's `mksnapshot` link fails
+  with undefined `simdutf::atomic_*`. Under Apple Clang the base64 benchmark also fails to compile
+  (it guards the calls by C++ version instead of `SIMDUTF_ATOMIC_REF`; simdutf/simdutf#1045).
+- **Fix**: same toolchain rule as node (`fails_with :clang` build 1699, `llvm` build dep). No
+  source patch: with LLVM's libc++ the benchmark compiles unpatched.
+- **ABI check (2026-09-25)**: no risk to Apple Clang callers. Both libc++ header sets are ABI v1
+  with the standard string layout; `std::string_view`, `std::tuple<result, size_t>`,
+  `simdutf::result`/`full_result` and `internal::atomic_ptr` have identical size, alignment and
+  offsets under AppleClang C++17/C++20 and LLVM 23; the virtual `implementation` class is guarded
+  only by `SIMDUTF_FEATURE_*` build options (`std::vector` appears only under
+  `SIMDUTF_INTERNAL_TESTS`); the dylib still links `/usr/lib/libc++.1.dylib` and imports only
+  `__cxa_*` runtime symbols from it; no abi-tagged exports. An AppleClang-built caller ran
+  correctly against the LLVM-built dylib.
+- **Retire when**: homebrew-core simdutf builds with node's toolchain, or ships a bottle for this
+  platform. Not Ventura-specific: any macOS with clang build <= 1699 and no simdutf bottle
+  (Intel, Sonoma) hits the same mismatch.
 
 ### z3.rb
 - **Problem**: (1) P0960R3 parenthesized aggregate init in `obj_hashtable.h` is unsupported by
