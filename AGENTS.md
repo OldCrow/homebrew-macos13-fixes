@@ -186,6 +186,8 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
   Fix: guard with `defined(__clang__)` first to force `__attribute__((__unused__))`.
 - **Missing struct typedef**: bare `Foo*` is valid C++ but a hard error in C translation units.
   Fix: add `typedef struct Foo Foo;` after the struct definition.
+- **Lambda capture of a structured binding**: C++20 (P1091R3) allows it, Clang implements it
+  only from 16. Fix: copy the binding into a named local before the lambda.
 - **SIP sandbox blocking network**: test targets that open outbound TLS connections SIGABRT
   inside the Homebrew build sandbox on macOS 13. Fix: skip `make check`.
 - **dylib soversion mismatch**: a dependency soname bump (e.g. nettle 3→4,
@@ -357,6 +359,17 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 - **Retire when**: homebrew-core simdutf builds with node's toolchain, or ships a bottle for this
   platform. Not Ventura-specific: any macOS with clang build <= 1699 and no simdutf bottle
   (Intel, Sonoma) hits the same mismatch.
+
+### qtmultimedia.rb
+- **Problem**: `qdarwinformatsinfo.mm` (darwin plugin) captures the structured binding
+  `containerName` in two lambdas. C++20 P1091R3 allows that, but Clang implements it only from
+  version 16; Apple Clang 15 fails with `reference to local binding 'containerName' declared in
+  enclosing function`. Not an SDK issue: core already has `depends_on xcode` and
+  `ENV.runtime_cpu_detection` (so `qtmultimedia` is in `runtime_cpu_detection_allowlist.json`).
+- **Fix**: core formula minus bottle block, `patch :DATA` copying the binding to a plain local
+  (`const char *const container`) used by both lambdas. Same lockstep and install-order rules as
+  qtdeclarative above.
+- **Retire when**: this machine leaves Apple Clang 15, or upstream stops capturing the binding.
 
 ### z3.rb
 - **Problem**: (1) P0960R3 parenthesized aggregate init in `obj_hashtable.h` is unsupported by
