@@ -176,8 +176,9 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 
 ### style_exceptions/
 - `runtime_cpu_detection_allowlist.json` — lists formulae allowed to call
-  `ENV.runtime_cpu_detection` without tripping `FormulaAudit/Miscellaneous`. Currently empty
-  (the file is removed); re-create it with the formula name if an override needs that call again.
+  `ENV.runtime_cpu_detection` without tripping `FormulaAudit/Miscellaneous`. Currently:
+  `qtbase` (homebrew-core's own formula makes the call, citing QTBUG-113391; the override keeps
+  it unchanged). Remove the file when no override needs the call.
 
 ## Known Apple Clang 15 Failure Patterns
 - **C23 attribute syntax conflict**: `[[__maybe_unused__]]` expands via `__has_c_attribute`
@@ -215,6 +216,31 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
   the first guard fails template substitution. Fix: force-include (`-include`) a self-contained
   polyfill that never touches the SDK `<format>`. This differs from 10.15, where libc++ lacks
   `std::format` entirely and the fix is the Homebrew LLVM toolchain.
+- **Upstream raised its minimum macOS above 13**: a project that now requires a 14.x+ deployment
+  target (Qt 6.12: macOS 14.4 / SDK 15) includes headers the macOS 13 SDK does not have
+  (`os/os_sync_wait_on_address.h`, 14.4+). homebrew-core may suppress the project's own SDK check
+  (`-DQT_NO_APPLE_SDK_AND_XCODE_CHECK=ON`), so configure passes and the first hard dependency
+  fails to compile. Fix: shim the new API over the older syscall it wraps when
+  `__MAC_OS_X_VERSION_MIN_REQUIRED` is below the API's introduction (see qtbase.rb). Expect no
+  upstream fix — the platform was dropped on purpose. Also check the project's *default deployment
+  target*: Qt 6.12 sets `CMAKE_OSX_DEPLOYMENT_TARGET` to its 14.4 minimum when none is given, so
+  a header-level fix alone still yields `-mmacosx-version-min=14.4` objects that dyld refuses to
+  load on 13; pin the target to `MacOS.version` and make sure it propagates to dependents.
+- **Which SDK Homebrew picks**: with both CLT and Xcode installed, superenv uses the CLT SDK
+  matching the host version (13.3 here) unless the formula has `depends_on xcode: :build`, which
+  switches to Xcode's SDK (14.2 with Xcode 15.2). A formula that drops its `xcode` dependency on a
+  version bump silently changes SDK and surfaces every "macOS 14 API used unconditionally" error
+  that the previous version never showed. Compare `HOMEBREW_SDKROOT` in the old and new
+  `~/Library/Logs/Homebrew/<formula>/*.log` before patching sources (see qtbase.rb).
+- **libc++ 23 header hygiene**: Homebrew LLVM 23's libc++ stopped transitively including
+  `<vector>`, `<optional>`, `<concepts>`, `<cstdint>` etc. from other headers. Sources that relied
+  on that fail with "no member named 'vector' in namespace 'std'" only on the `fails_with :clang`
+  → Homebrew LLVM path, which is every C++20 formula on Ventura. Fix: backport the upstream
+  include additions (see ada-url.rb).
+- **Tap override version lag breaks dependents in Ruby**: `Formula["name"]` in a dependent's
+  `install` resolves to the *core* formula, so `.prefix` / `.prefix.realpath` points at a Cellar
+  version that is not installed when this tap pins an older one (`Errno::ENOENT`, no build log
+  for the failing step). Fix: bump the override, never pin behind core (see gcc.rb).
 
 ## Known Homebrew 6.x Tooling Pitfalls
 - **Tap-relative `file:` patches fail via the JSON API**: Homebrew 6.x loads formulas from the
@@ -228,7 +254,21 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 - **Problem**: the macOS patch is referenced via a tap-relative `file:` path that Homebrew 6.x
   cannot resolve when loading from the JSON API. Not a compiler issue.
 - **Fix**: replace the `file` reference with a pinned raw-URL patch (same diff, verified by
-  `sha256`).
+  `sha256`). Otherwise identical to homebrew-core.
+- **Lockstep**: must track core's gcc version. Dependents resolve `Formula["gcc"]` to the *core*
+  formula; `r` calls `Formula["gcc"].prefix.realpath` after its build and raised
+  `Errno::ENOENT ... /usr/local/Cellar/gcc/16.2.0` while the tap keg was still 16.1.0
+  (2026-10-15). A version lag here breaks dependents at install time, not at build time.
+
+### ada-url.rb
+- **Problem**: ada 4.0.0's headers use `std::vector`, `std::optional` and `std::same_as` without
+  including `<vector>`, `<optional>`, `<concepts>`. core builds ada-url with Homebrew LLVM when
+  `clang_build_version <= 1500` (`fails_with :clang`), and LLVM 23's libc++ no longer includes
+  those transitively, so compilation fails in `url_pattern_regex.h`. Not Ventura-specific: any
+  libc++ 23 source build of 4.0.0 fails. Blocks `node` (ada-url is a dependency).
+- **Fix**: inline backport of ada-url/ada@d85b80412f11 (#1292, "Add missing includes of standard
+  library headers"): the commit's hunks for files that exist in 4.0.0, plus hand-ported includes
+  for the four files whose context moved. Retire when core moves past 4.0.0.
 
 ### gnupg.rb
 - **Problem**: `make check` fails on macOS 13 — `t-http-basic` SIGABRTs under the SIP sandbox
@@ -258,6 +298,54 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
   (it guards the calls by C++ version instead of `SIMDUTF_ATOMIC_REF`; simdutf/simdutf#1045).
 - **Fix**: same toolchain rule as node (`fails_with :clang` build 1699, `llvm` build dep). No
   source patch: with LLVM's libc++ the benchmark compiles unpatched.
+
+### qtbase.rb
+- **Problem**: Qt 6.12.0 requires macOS 14.4 (SDK 15, Xcode 16). homebrew-core passes
+  `-DQT_NO_APPLE_SDK_AND_XCODE_CHECK=ON`, so configure succeeds on Ventura and compilation fails
+  in `src/corelib/thread/qfutex_mac_p.h`: `os/os_sync_wait_on_address.h` (macOS 14.4 SDK) is
+  missing. 6.12 made the Darwin futex unconditional (`QT_ALWAYS_USE_FUTEX`,
+  `FutexAlwaysAvailable = true` in the public `qmutex.h`) and removed the Mach-semaphore mutex
+  fallback (`qmutex_mac.cpp`); the generic Unix fallback uses `sem_init()`, which macOS does not
+  implement, so reverting to 6.11's runtime-detected futex is not viable.
+- **Fix** (four parts, all in one `patch :DATA` plus two formula lines):
+  1. `qfutex_mac_p.h`: when the SDK lacks the header or `__MAC_OS_X_VERSION_MIN_REQUIRED <
+     140400`, define the four `os_sync_*` functions as inline shims over
+     `__ulock_wait2`/`__ulock_wake` (macOS 11+; the syscalls Qt 6.11 called directly and that
+     libplatform's `os_sync_*` wrap). Verified against the macOS 13 SDK: both syscalls are
+     exported by `libsystem_kernel`, timeouts report `ETIMEDOUT`, 32- and 64-bit waits and wakes
+     work. The SDK header is used unchanged on 14.4+ targets.
+  2. Deployment target: 6.12.0 also dropped core's `-DCMAKE_OSX_DEPLOYMENT_TARGET=min(host,
+     sonoma)` (present 6.9.3-6.11.2), so Qt defaulted it to its 14.4 minimum: every object was
+     built `-mmacosx-version-min=14.4` (the shim never engaged) and the result would not load on
+     13. The formula pins `-DCMAKE_OSX_DEPLOYMENT_TARGET=#{MacOS.version}`; the patch teaches the
+     installed `QtAutoDetectHelpers.cmake` (used by every qt* submodule via Qt6 BuildInternals)
+     to honour `$MACOSX_DEPLOYMENT_TARGET` or the host version when older than Qt's minimum.
+  3. SDK: 6.12.0 dropped `depends_on xcode: :build` too, so Homebrew picked the CLT's 13.3 SDK
+     instead of Xcode 15.2's 14.2 SDK, and the Cocoa/Darwin code uses 14.0-14.2 API
+     unconditionally (`NSView.clipsToBounds`, `EKAuthorizationStatusFullAccess`, CALayer HDR
+     flag). The formula restores `depends_on xcode: :build`. Guards for the EventKit and HDR
+     cases are kept in the patch so a 13-SDK build also works.
+  4. `qcocoascreen.mm`: the screenshot path moved to `SCScreenshotManager` and
+     `getCurrentProcessShareableContentWithCompletionHandler:` (14.4 SDK); restored the 6.11
+     `CGDisplayCreateImageForRect` grab behind `QT_APPLE_SDK_EQUAL_OR_ABOVE(MACOS(14, 4))`.
+- **Lockstep**: this is a Qt submodule override, so it must track homebrew-core's qtbase version
+  exactly (see "Version-lag hazard" under Retired Overrides). Every other `qt*` formula still
+  comes from homebrew-core. Install `oldcrow/macos13-fixes/qtbase` before `brew upgrade` or
+  `brew bundle` touches the rest of Qt, so dependents reuse the keg.
+- **Upstream**: none expected; Qt dropped macOS 13 deliberately. Retire with the machine.
+
+### qtdeclarative.rb (and any further Qt submodule override of the same shape)
+- **Problem**: core builds the submodules against the CLT 13.3 SDK and Qt 6.12 uses macOS 14 SDK
+  API unconditionally (`qtdeclarative`: `NSColor.secondarySystemFillColor` /
+  `tertiarySystemFillColor` in `qquickstyleconstants.mm`).
+- **Fix**: core formula plus `depends_on xcode: :build` inside `on_macos`, so superenv uses Xcode
+  15.2's 14.2 SDK. No source patch. The deployment target stays 13 via the patched
+  `QtAutoDetectHelpers.cmake` that the tap qtbase installs. Generate further ones the same way
+  (header comment naming the module and symptom, `on_macos` block, bottle block dropped), add a
+  gated Brewfile entry between `qtbase` and `qt`, and keep every one in lockstep with core's Qt.
+- **Install order**: core `brew upgrade qt` stops at the first failing module. Uninstall the core
+  keg (`brew uninstall --ignore-dependencies <module>`), install the tap one, then rerun
+  `brew upgrade qt`.
 - **ABI check (2026-09-25)**: no risk to Apple Clang callers. Both libc++ header sets are ABI v1
   with the standard string layout; `std::string_view`, `std::tuple<result, size_t>`,
   `simdutf::result`/`full_result` and `internal::atomic_ptr` have identical size, alignment and
