@@ -342,11 +342,13 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 - **Fix**: inline patch moves the `__clang__` branch ahead of `__has_c_attribute` so the
   `__attribute__((__unused__))` form is always used.
 
-### itstool.rb / itstool@2.0.7.rb
-- **Problem**: macOS 13 lacks system Python XML support; itstool needs libxml2 Python bindings
-  with ICU.
-- **Fix**: build against a bundled `libxml2` resource with ICU support and Python 3.14 bindings.
-- **Key dependency**: `icu4c@78`, `libxml2`, `python@3.14`.
+### python@3.14.rb / python@3.15.rb
+- **Problem**: core passes `--with-tail-call-interp` unconditionally on macOS; CPython does not
+  probe for it and `ceval_macros.h` hard-errors because Apple Clang 15 lacks
+  `__attribute__((preserve_none))` (LLVM 19+). Core also references its sysconfig patch by a
+  tap-relative path, which fails under the JSON API.
+- **Fix**: gate the flag on `DevelopmentTools.clang_build_version >= 1700`; fetch the patch by
+  pinned URL. Re-copy the core formula on every bump (`brew cat homebrew/core/python@3.x`).
 
 ### simdutf.rb
 - **Problem**: node 26.10.0 builds V8 against the shared simdutf and calls its atomic base64 API.
