@@ -52,6 +52,9 @@
 # hazard"): bump this formula in lockstep with homebrew-core's qtbase, or
 # retire it.
 #
+# Bumped to 6.12.0_2 (2026-10-25) in lockstep with core: icu4c@79, the
+# AT-SPI bridge disabled on macOS, and core's include_next cherry-pick.
+#
 # Remove this formula once this machine leaves macOS 13, or homebrew-core
 # qtbase builds on it again.
 class Qtbase < Formula
@@ -63,6 +66,7 @@ class Qtbase < Formula
     "BSD-3-Clause", # *.cmake
     "GFDL-1.3-no-invariants-only", # *.qdoc
   ]
+  revision 2
   compatibility_version 1
   head "https://code.qt.io/qt/qtbase.git", branch: "dev"
 
@@ -78,6 +82,14 @@ class Qtbase < Formula
       sha256 "6870a711a6fb7ce6367f541e10ec9fe2785bd7d7484a2b1759b8d1f082a3f09f"
       type :backport
     end
+
+    # Fix `#include_next` forwarding headers when the framework path precedes them
+    patch do
+      url "https://github.com/qt/qtbase/commit/8c260a771ab1ed7d6cdb5f221854ee470e5790a6.patch?full_index=1"
+      sha256 "07742a103f8928457f7df8140a0f88589980f81670ab0b6c646b19dc8cc36344"
+      type :cherry_pick
+      resolves "https://codereview.qt-project.org/c/qt/qtbase/+/776003"
+    end
   end
 
   # The first-party website doesn't make version information readily available,
@@ -85,14 +97,6 @@ class Qtbase < Formula
   livecheck do
     url :head
     regex(/^v?(\d+(?:\.\d+)+)$/i)
-  end
-
-  bottle do
-    sha256 cellar: :any, arm64_golden_gate: "33f80fd31c736fd7596decb81317283c8b88a9be83e2581bc867813f6d0aefd2"
-    sha256 cellar: :any, arm64_tahoe:       "8f2e7639fe17e5818af3f985f21987fd98228ea6ba9c06b9b2766c06629b0b92"
-    sha256 cellar: :any, arm64_sequoia:     "05a650cc37066dedbb32b05355608e7902590d4bd3ff21649adce04275502d08"
-    sha256 cellar: :any, arm64_linux:       "90894129c986e7372b6a8b85786086c83fc3f2875f8778f8bc9748f25bec26a2"
-    sha256 cellar: :any, x86_64_linux:      "a057f2f917766dbfc6bedbe102e5215712fc74ff8e102333b9e42ae83d853806"
   end
 
   depends_on "cmake" => [:build, :test]
@@ -106,7 +110,7 @@ class Qtbase < Formula
   depends_on "freetype"
   depends_on "glib"
   depends_on "harfbuzz"
-  depends_on "icu4c@78"
+  depends_on "icu4c@79"
   depends_on "jpeg-turbo"
   depends_on "libb2"
   depends_on "libpng"
@@ -228,11 +232,14 @@ class Qtbase < Formula
                 'set(QT_CONFIGURE_LIBLOCATION_TO_PREFIX_PATH "${from_lib_location_to_prefix}")',
                 "set(QT_CONFIGURE_LIBLOCATION_TO_PREFIX_PATH \"#{HOMEBREW_PREFIX.relative_path_from(lib)}\")"
 
+      # Avoid opportunistic linkage to `at-spi2-core`. The AT-SPI bridge is
+      # Linux-only and fails to build on macOS if `at-spi2-core` is installed.
       # Qt 6.12 defaults CMAKE_OSX_DEPLOYMENT_TARGET to its 14.4 minimum; the
       # result would not load on this host. Pin it to the running macOS.
       %W[
         -DFEATURE_relocatable=ON
         -DQT_NO_APPLE_SDK_AND_XCODE_CHECK=ON
+        -DFEATURE_accessibility_atspi_bridge=OFF
         -DCMAKE_OSX_DEPLOYMENT_TARGET=#{MacOS.version}
       ]
     else

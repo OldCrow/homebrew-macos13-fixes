@@ -1,6 +1,6 @@
 # Patched for macOS 13 (Ventura) / Apple Clang 15 compatibility.
 #
-# node 26.10.0 builds V8 against the shared simdutf, and V8 calls
+# node 26.x builds V8 against the shared simdutf, and V8 calls
 # simdutf::atomic_binary_to_base64 / atomic_base64_to_binary_safe. simdutf
 # compiles those functions only when SIMDUTF_ATOMIC_REF is set
 # (__cpp_lib_atomic_ref). node's formula builds with Homebrew LLVM whenever
@@ -23,16 +23,21 @@
 # Not Ventura-specific: any macOS with clang_build_version <= 1699 and no
 # simdutf bottle (Intel macOS, Sonoma) hits the same mismatch.
 #
+# Bumped to 9.3.2_1 on icu4c@79 (2026-10-25) to stay in lockstep with core:
+# node 26.12.1_1 and ada-url 4.0.0_1 are built against simdutf 9.3 and
+# icu4c@79. Re-copy the core formula on every bump and re-apply the
+# toolchain rule below.
+#
 # Remove this formula once homebrew-core simdutf builds with the same
 # toolchain as node, or ships a bottle for this platform.
 class Simdutf < Formula
   desc "Unicode conversion routines, fast"
   homepage "https://simdutf.github.io/simdutf/"
-  url "https://github.com/simdutf/simdutf/archive/refs/tags/v9.2.1.tar.gz"
-  sha256 "582f9d0dcf578f6d4766fa29ea12a7f2f02bd3c6ad9e0cf35a8e0ec8478eba4b"
+  url "https://github.com/simdutf/simdutf/archive/refs/tags/v9.3.2.tar.gz"
+  sha256 "d92a0a4ce216dcebf18af20fed7ea7279fa535683f790fdaeed39827a234f567"
   license any_of: ["Apache-2.0", "MIT"]
   revision 1
-  compatibility_version 6
+  compatibility_version 7
   head "https://github.com/simdutf/simdutf.git", branch: "master"
 
   livecheck do
@@ -42,7 +47,7 @@ class Simdutf < Formula
 
   depends_on "aklomp-base64" => :build
   depends_on "cmake" => :build
-  depends_on "icu4c@78"
+  depends_on "icu4c@79"
 
   uses_from_macos "python" => :build
 

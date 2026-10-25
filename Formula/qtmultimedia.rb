@@ -15,6 +15,8 @@
 # hazard"): bump this formula in lockstep with homebrew-core's qtbase, or
 # retire it.
 #
+# Bumped to 6.12.0_1 (2026-10-25) in lockstep with core's qtbase 6.12.0_1.
+#
 # Remove this formula once this machine leaves macOS 13 / Apple Clang 15, or
 # upstream stops capturing structured bindings in qdarwinformatsinfo.mm.
 class Qtmultimedia < Formula
@@ -32,6 +34,7 @@ class Qtmultimedia < Formula
     "GPL-3.0-only", # Qt6MultimediaTestLib
     "MIT",          # bundled signalsmith-stretch (Linux)
   ]
+  revision 1
   compatibility_version 1
   head "https://code.qt.io/qt/qtmultimedia.git", branch: "dev"
 

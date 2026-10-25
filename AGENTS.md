@@ -218,6 +218,13 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 - **Tap-relative `file` patch under the JSON API**: `patch do; file "Patches/..."; end` resolves
   against the loading tap, which the API-loaded formula lacks ("Patch file does not exist").
   Fix: pinned, sha256-verified `url` to the same file in homebrew-core (gcc, python@3.x).
+- **Override soversion bump strands source-built dependents**: when an override's dylib soversion
+  changes (simdutf 9.2.1 `libsimdutf.36` → 9.3.2 `.37`), core does not revision-bump dependents
+  whose bottles it simply rebuilt (merve), so `brew outdated` stays silent while their kegs still
+  load the old soname; the next consumer build then dies at run time (node's `node_js2c`:
+  "Library not loaded: libsimdutf.36.dylib, referenced from libmerve"). After bumping such an
+  override, scan `otool -L` over every keg whose INSTALL_RECEIPT lists it and `brew reinstall`
+  the stale ones before building their consumers.
 - **superenv strips `-march=` flags**: Homebrew's build shim drops all `-march=` flags
   unless the formula calls `ENV.runtime_cpu_detection`. Formulas with per-file SIMD
   dispatch (e.g. Qt's AVX2 conversion helpers) silently lose their target-feature flags

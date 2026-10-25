@@ -17,6 +17,8 @@
 # hazard"): bump this formula in lockstep with homebrew-core's qtbase, or
 # retire it.
 #
+# Bumped to 6.12.0_1 (2026-10-25) in lockstep with core's qtbase 6.12.0_1.
+#
 # Remove this formula once this machine leaves macOS 13, or homebrew-core
 # qtdeclarative builds on it again.
 class Qtdeclarative < Formula
@@ -32,6 +34,7 @@ class Qtdeclarative < Formula
     "BSD-2-Clause", # masm
     "BSD-3-Clause", # *.cmake
   ]
+  revision 1
   compatibility_version 1
   head "https://code.qt.io/qt/qtdeclarative.git", branch: "dev"
 
