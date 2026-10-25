@@ -26,6 +26,24 @@ git fetch && git status
 
 If local and remote have diverged, reconcile before making further changes.
 
+Then check whether any override lags homebrew-core. `brew outdated` cannot see this: it compares an
+installed keg against the formula in the keg's own tap, which is this one and matches by construction,
+and bare `brew info <name>` resolves to the installed tap formula for the same reason. Compare
+explicitly (version plus revision):
+
+```bash
+for f in Formula/*.rb; do n=$(basename $f .rb)
+  printf '%-16s tap=%-10s core=%s\n' $n \
+    "$(brew info --json=v2 oldcrow/macos13-fixes/$n | jq -r '.formulae[0] | .versions.stable + (if .revision > 0 then "_\(.revision)" else "" end)')" \
+    "$(brew info --json=v2 homebrew/core/$n 2>/dev/null | jq -r '.formulae[0] | .versions.stable + (if .revision > 0 then "_\(.revision)" else "" end)')"
+done
+```
+
+A core revision bump on an overridden formula usually marks a dependency migration (icu4c@79,
+python@3.15) that the override must follow *before* its dependents are upgraded, or the dependents
+build against the wrong keg. An override must never lag core (see the `r`/gcc realpath failure under
+Known Patterns); 9 of 13 lagged on 2026-10-24 while `brew outdated` showed the tap as clean.
+
 ## Build Commands
 
 ```bash
