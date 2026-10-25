@@ -193,6 +193,13 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
 - **dylib soversion mismatch**: a dependency soname bump (e.g. nettle 3→4,
   `libhogweed.6→.7`) leaves a dependent linked against the old soversion.
   Fix: rebuild the dependent against the updated dep via a companion formula in this tap.
+- **Formula flag assumes a newer compiler**: CPython 3.14+ `--with-tail-call-interp` is passed
+  unconditionally by core on macOS; configure does not probe, and `ceval_macros.h` hard-errors
+  because Apple Clang 15 lacks `__attribute__((preserve_none))` (LLVM 19+). Fix: gate the flag on
+  `DevelopmentTools.clang_build_version >= 1700` in the override (python@3.14, python@3.15).
+- **Tap-relative `file` patch under the JSON API**: `patch do; file "Patches/..."; end` resolves
+  against the loading tap, which the API-loaded formula lacks ("Patch file does not exist").
+  Fix: pinned, sha256-verified `url` to the same file in homebrew-core (gcc, python@3.x).
 - **superenv strips `-march=` flags**: Homebrew's build shim drops all `-march=` flags
   unless the formula calls `ENV.runtime_cpu_detection`. Formulas with per-file SIMD
   dispatch (e.g. Qt's AVX2 conversion helpers) silently lose their target-feature flags
