@@ -1,10 +1,14 @@
 # Patched for macOS 13 (Ventura) / Apple Clang 15 compatibility.
-# Two independent compiler/stdlib issues prevent z3 4.16.0 from building:
+# Two independent compiler/stdlib issues prevent z3 5.3.1 from building:
 #
 # 1. P0960R3 (parenthesized aggregate initialization) in obj_hashtable.h.
-#    z3 4.16.0 constructs the key_data aggregate with parentheses:
+#    z3 5.3.1 no longer does this inside obj_hashtable.h, but expr2var.cpp
+#    still constructs the key_data typedef with parentheses:
 #
-#      m_table.insert(key_data(k, v));
+#      m_mapping.push_back(key_value(n, v));
+#
+#    and symbol_table.h gained its own aggregate key_data, built with
+#    `key_data dummy(key)` in find() and insert().
 #
 #    P0960R3 was not implemented in Clang until version 16.  Apple Clang 15
 #    (clang-1500, Ventura / Xcode 15) rejects these calls because key_data
@@ -21,14 +25,24 @@
 #    Fix: force-include a self-contained polyfill that never touches the SDK
 #    <format> header, implementing plain {} substitution via ostringstream.
 #
+# Core's own answer (5.0.0+) is `fails_with :clang` on Ventura or older, which
+# makes Homebrew build with its LLVM clang. That path fails here before
+# compiling anything: z3's LTO probe runs with -flto=thin and CMake finds no
+# llvm-ar through superenv ("CMAKE_CXX_COMPILER_AR-NOTFOUND"). Core does
+# not build Ventura, so it never sees this. This override keeps Apple Clang
+# 15 and drops that block; the two fixes above are all it needs.
+# 5.3.1 uses std::format in 10 files (was 29 call sites in 4.16.0), still
+# only with bare {} placeholders, so the polyfill is unchanged.
+#
 # Remove this formula once homebrew-core ships a fix or a Ventura bottle.
 class Z3 < Formula
   desc "High-performance theorem prover"
   homepage "https://github.com/Z3Prover/z3"
-  url "https://github.com/Z3Prover/z3/archive/refs/tags/z3-4.16.0.tar.gz"
-  sha256 "c68c3e5e4810b16126b8cb4c47eee85c1ac3e24a81914c8e371b40de9dd33ac7"
+  url "https://github.com/Z3Prover/z3/archive/refs/tags/z3-5.3.1.tar.gz"
+  sha256 "c007089dd8d92298d2a7d14105b14e8dddfbb540062ce471c3111e0741edd8da"
   license "MIT"
-  compatibility_version 2
+  compatibility_version 5
+  head "https://github.com/Z3Prover/z3.git", branch: "master"
 
   livecheck do
     url :stable
@@ -39,16 +53,14 @@ class Z3 < Formula
   depends_on "cmake" => :build
   # Has Python bindings but are supplementary to the main library
   # which does not need Python.
-  depends_on "python@3.14" => [:build, :test]
+  depends_on "python@3.15" => [:build, :test]
 
   fails_with :gcc do
     version "12"
     cause "Requires C++20 std::format, https://gcc.gnu.org/gcc-13/changes.html#libstdcxx"
   end
 
-  def python3
-    which("python3.14")
-  end
+  deny_network_access!
 
   def install
     # std::format is disabled in the macOS 13 SDK in two layers:
@@ -61,7 +73,7 @@ class Z3 < Formula
     #
     # Fix: force-include a self-contained polyfill that never touches <format>.
     # It handles the plain {} placeholder syntax — the only form used by
-    # z3 4.16.0 (29 call sites in src/ast/, all simple error messages).
+    # z3 5.3.1 (10 files, all simple error messages).
     # On macOS 14+ _LIBCPP_HAS_NO_INCOMPLETE_FORMAT is not defined, so the
     # polyfill is a compile-time no-op there.
     (buildpath/"z3_format_compat.h").write <<~EOS
@@ -115,6 +127,31 @@ class Z3 < Formula
               "key_data(Key * k, Value && v) : m_key(k), m_value(std::move(v)) {}\n        " \
               "Value const & get_value()"
     end
+
+    # 5.x adds a second parenthesized-aggregate site: symbol_table<T>::key_data
+    # (symbol_table.h) is still a plain aggregate and is constructed with
+    # `key_data dummy(key)` in find() and insert(). Brace-initialize it.
+    inreplace "src/util/symbol_table.h", "key_data dummy(key);", "key_data dummy{key};"
+
+    # euf_egraph.h: update_record's anonymous-struct union member m_th is an
+    # aggregate initialized with parentheses in two mem-initializers.
+    inreplace "src/ast/euf/euf_egraph.h" do |s|
+      # theory_id/theory_var are int; the bitfields are unsigned. Braces forbid
+      # the implicit narrowing the parentheses allowed, so cast explicitly.
+      s.gsub! "m_th(id, v) {}", "m_th{static_cast<unsigned>(id), static_cast<unsigned>(v)} {}"
+      s.gsub! "m_th(th_id) {}", "m_th{th_id} {}"
+    end
+
+    # smt component: three more aggregates built with parentheses.
+    inreplace "src/smt/smt_conflict_resolution.h", "m_pair(lhs, rhs) {}", "m_pair{lhs, rhs} {}"
+    inreplace "src/smt/theory_finite_set_size.cpp", "in lit(p, v == l_true);", "in lit{p, v == l_true};"
+    # `reach` is allocated through z3's alloc() macro, which spells T(args...),
+    # so give it a constructor instead of touching the call sites.
+    inreplace "src/smt/theory_array_full.cpp",
+              "            enode* m_store = nullptr;\n        };",
+              "            enode* m_store = nullptr;\n            " \
+              "reach(enode* r, reach* p = nullptr, enode* s = nullptr) : " \
+              "m_root(r), m_parent(p), m_store(s) {}\n        };"
 
     args = %W[
       -DZ3_LINK_TIME_OPTIMIZATION=ON

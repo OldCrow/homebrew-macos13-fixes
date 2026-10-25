@@ -68,6 +68,26 @@ brew test-bot --only-tap-syntax --tap=oldcrow/macos13-fixes
 brew test-bot --only-formulae --tap=oldcrow/macos13-fixes  # local only; CI no longer runs this
 ```
 
+### Finding every Apple Clang 15 failure in one pass
+
+A normal build stops at the first failing translation unit, so a formula with several
+compiler-compatibility sites (z3 5.3.1 had eight) costs one 2-15 minute build per site. Collect
+them all at once with a syntax-only sweep: configure the unpacked source in a scratch directory
+with the same flags the formula uses (LTO off, bindings off), inject `-fsyntax-only` into every
+generated `flags.make`, then `make -k` so no object is produced and no failure stops the rest.
+Run it outside the Bash sandbox: `xcrun` must write its cache under `/var/folders`.
+
+```bash
+cmake -S . -B build -DZ3_LINK_TIME_OPTIMIZATION=OFF <formula args> \
+      -DCMAKE_CXX_FLAGS="-include $PWD/polyfill.h"   # whatever the override force-includes
+for f in $(find build -name flags.make); do sed -i '' 's/^CXX_FLAGS = /CXX_FLAGS = -fsyntax-only /' $f; done
+make -C build -k -j6 2>&1 | grep 'error:' | sort -u
+```
+
+A component that fails blocks every component depending on it (`Target ... not remade because
+of errors`), so fix the reported sites in the scratch tree and rerun until the only unmade
+targets are the link steps. Mirror each fix into the formula as you go.
+
 ### Native gem builds on Ventura (blocks `brew style` / `audit` / `test-bot`)
 
 Homebrew's portable-ruby 4.0 ships `ruby/internal/stdckdint.h`, which includes the C23
@@ -204,6 +224,11 @@ macOS Sequoia 15 and earlier, `brew doctor` suggests MacPorts as the fallback.
   Fix: guard with `defined(__clang__)` first to force `__attribute__((__unused__))`.
 - **Missing struct typedef**: bare `Foo*` is valid C++ but a hard error in C translation units.
   Fix: add `typedef struct Foo Foo;` after the struct definition.
+- **Parenthesized aggregate initialization (C++20 P0960R3)**: `T(args)` on a plain aggregate,
+  including `alloc(T, args)`, `T x(args);` and anonymous-struct members in mem-initializers,
+  is implemented only from Clang 16. Fix: brace-initialize at the call site, or add a constructor
+  when the call goes through a macro. Braces forbid the narrowing the parentheses allowed, so
+  `static_cast` int arguments into unsigned bitfields. z3 5.3.1 had eight such sites.
 - **Lambda capture of a structured binding**: C++20 (P1091R3) allows it, Clang implements it
   only from 16. Fix: copy the binding into a named local before the lambda.
 - **SIP sandbox blocking network**: test targets that open outbound TLS connections SIGABRT
